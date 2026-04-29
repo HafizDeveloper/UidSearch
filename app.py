@@ -3,17 +3,17 @@ import requests
 
 app = Flask(__name__)
 
-# --- CONFIGURATION ---
+# --- AUTH CONFIGURATION ---
 ANDROID_ID = "96a2a6c1a6c9dce6"
 VERSION = "OB53"
 cached_token = None
 
-def get_session_token():
+def get_session():
     global cached_token
     if cached_token:
         return cached_token
     
-    # Automatic login using your Android ID
+    # Auto-login engine
     url = "https://loginbp.ggpolarbear.com/MajorLogin"
     payload = {
         "device_id": ANDROID_ID,
@@ -29,28 +29,25 @@ def get_session_token():
     except:
         return None
 
-# --- HOME PAGE (MATCHING YOUR IMAGE FORMAT) ---
+# --- HOME INTERFACE (FOLLOWING YOUR SCREENSHOT FORMAT) ---
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({
         "available_regions": ["SG"],
-        "endpoint": "/check?name=UID",
-        "message": "Enter Uid ",
-        "note": "Real-time Garena Singapore database synchronization enabled."
+        "endpoint": "/gen?name=UID",
+        "message": "HafizX Player Search API",
+        "note": "Enter UID to fetch player nickname and basic info."
     })
 
-# --- SEARCH ENDPOINT ---
+# --- CORE SEARCH ENGINE ---
 @app.route('/gen', methods=['GET'])
-def search_player():
-    target_uid = request.args.get('name')
+def search_id():
+    uid = request.args.get('name')
     
-    if not target_uid:
-        return jsonify({
-            "status": "Error", 
-            "msg": "Missing parameter: please use ?name=UID"
-        }), 400
+    if not uid:
+        return jsonify({"status": "Error", "msg": "Please provide a UID"}), 400
 
-    token = get_session_token()
+    token = get_session()
     headers = {
         "Authorization": f"Bearer {token}",
         "ReleaseVersion": VERSION,
@@ -58,35 +55,28 @@ def search_player():
     }
     
     try:
-        # Fetch player info from Garena SG
+        # Target: Fetching nickname and basic data
         api_url = "https://clientbp.ggpolarbear.com/GetPlayerBriefInfo"
-        response = requests.post(api_url, data=f"account_id={target_uid}", headers=headers, timeout=7)
+        response = requests.post(api_url, data={"account_id": uid}, headers=headers, timeout=5)
         
-        # Handle Expired Session
-        if response.status_code == 401:
-            global cached_token
-            cached_token = None # Clear cache to force re-login on next try
-            return jsonify({"status": "Failed", "msg": "Session expired, please refresh"}), 401
-
         if response.status_code == 200:
-            data = response.json()
+            p = response.json()
             return jsonify({
                 "status": "Success",
                 "data": {
-                    "uid": target_uid,
-                    "nickname": data.get("nickname", "Not Found"),
-                    "level": data.get("level", "0"),
+                    "uid": uid,
+                    "nickname": p.get("nickname", "Not Found"),
+                    "level": p.get("level", "0"),
                     "region": "Singapore"
                 }
             })
         else:
-            return jsonify({"status": "Failed", "msg": "Garena Server Error"}), response.status_code
+            return jsonify({"status": "Failed", "msg": "Connection error"}), response.status_code
 
     except Exception as e:
         return jsonify({"status": "Error", "msg": str(e)}), 500
 
 if __name__ == '__main__':
-    # Pretty-print JSON like in your screenshot
     app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
     app.config['JSON_SORT_KEYS'] = False
     app.run(host='0.0.0.0', port=5000, debug=True)
