@@ -1,24 +1,21 @@
 from flask import Flask, jsonify, request
 import requests
+import re
 
 app = Flask(__name__)
 
-# --- KONFIGURASI ASAS ---
+# --- CONFIG ---
 VERSION = "OB53"
-# Token ini akan disimpan dalam memori server Render. 
-# Hafiz kena update guna link /update lepas push ke Render.
 current_token = ""
 
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({
         "status": "Online",
-        "region": "Singapore",
-        "service": "HafizX Player Search API",
+        "service": "HafizX Binary Search API",
         "version": VERSION
     })
 
-# --- ENDPOINT UTAMA: CARI PLAYER ID ---
 @app.route('/gen', methods=['GET'])
 def get_player():
     global current_token
@@ -27,7 +24,7 @@ def get_player():
     if not uid:
         return jsonify({"status": "Error", "msg": "Sila masukkan ?name=UID"}), 400
 
-    # HEADERS: Copy sebiji macam raw data yang kau bagi
+    # Headers yang diikut sebiji dari raw data mitmweb kau
     headers = {
         "Host": "clientbp.ggpolarbear.com",
         "User-Agent": "UnityPlayer/2022.3.47f1 (UnityWebRequest/1.0, libcurl/8.5.0-DEV)",
@@ -42,51 +39,60 @@ def get_player():
 
     try:
         url = "https://clientbp.ggpolarbear.com/GetAccountInfoByAccountID"
-        
-        # Payload format: account_id=UID
         payload = f"account_id={uid}"
         
+        # Hantar request
         res = requests.post(url, data=payload, headers=headers, timeout=10)
         
-        # Log untuk check kat Render
-        print(f"DEBUG: UID {uid} | Status {res.status_code} | Res: {res.text}")
+        # Log status untuk debug di Render
+        print(f"DEBUG: UID {uid} | Status {res.status_code}")
 
         if res.status_code == 200:
-            data = res.json()
-            # Garena bagi data dalam json, kita tarik nickname
-            name = data.get("nickname") or data.get("nick_name")
-
-            if name:
+            # Guna .content untuk data binari (Protobuf)
+            raw_data = res.content 
+            
+            # Teknik "Regex Scraper" untuk cari nickname dalam data jampi
+            # Kita cari string yang ada huruf/nombor dan simbol khas nama (3-20 char)
+            # Pattern ini akan cuba cari nama seperti 'MᴜᴍᴍʏEᴠᴀTᴇᴀᴍ'
+            match = re.search(rb'[A-Za-z0-9\s\u1D00-\u1D7F]{3,20}', raw_data)
+            
+            if match:
+                # Decode data yang dijumpai ke bentuk teks biasa
+                nickname = match.group().decode('utf-8', errors='ignore').strip()
+                
                 return jsonify({
                     "status": "Success",
                     "data": {
                         "uid": uid,
-                        "name": name,
-                        "level": data.get("level", "0"),
-                        "region": "Singapore"
+                        "name": nickname,
+                        "method": "Binary Extraction"
                     }
                 })
             else:
-                return jsonify({"status": "Failed", "msg": "ID Tak Jumpa"}), 404
+                return jsonify({
+                    "status": "Failed", 
+                    "msg": "Nickname tidak dapat dikesan dalam data binari",
+                    "debug_raw": str(raw_data[:50]) # Tunjuk 50 huruf pertama untuk check
+                }), 404
         
         return jsonify({
             "status": "Error", 
             "msg": f"Garena Error {res.status_code}",
-            "raw": res.text
+            "raw_hex": res.content.hex()[:100]
         }), res.status_code
 
     except Exception as e:
         return jsonify({"status": "Error", "msg": str(e)}), 500
 
-# Update token guna link: /update?t=TOKEN
+# Endpoint untuk update token SG kau
 @app.route('/update', methods=['GET'])
 def update():
     global current_token
     t = request.args.get('t')
     if t:
         current_token = t
-        return "Token Updated!"
-    return "No Token"
+        return "<h3>Token Berjaya Diupdate!</h3>"
+    return "Masukkan token: /update?t=TOKEN"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
