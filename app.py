@@ -24,69 +24,53 @@ def get_player():
     global current_token
     uid = request.args.get('name')
     
-    # Check kalau Hafiz lupa letak ?name=UID
     if not uid:
         return jsonify({"status": "Error", "msg": "Sila masukkan ?name=UID"}), 400
 
-    # Header yang diperlukan oleh server Garena
     headers = {
         "Authorization": f"Bearer {current_token}",
         "ReleaseVersion": VERSION,
         "X-GA": "v1 1",
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 12; MSI Build/SKR1.210119.001)"
+        "User-Agent": "okhttp/3.12.1"
     }
 
     try:
-        url = "https://clientbp.ggpolarbear.com/GetPlayerBriefInfo"
+        # Ganti dengan endpoint yang Hafiz jumpa tadi
+        url = "https://clientbp.ggpolarbear.com/GetAccountInfoByAccountID"
         
-        # Payload dalam format form-urlencoded (Kunci kepada Error 500 tadi)
-        payload = {'account_id': str(uid)} 
+        # Cuba hantar payload macam ni (ikut kesesuaian mitmweb)
+        payload = f"account_id={uid}"
         
-        # Hantar request ke Garena
         res = requests.post(url, data=payload, headers=headers, timeout=10)
         
-        # Log untuk Hafiz check kat Dashboard Render kalau ada error
-        print(f"DEBUG: UID {uid} | Status {res.status_code} | Response: {res.text}")
-
         if res.status_code == 200:
             data = res.json()
-            nickname = data.get("nickname")
+            # Biasanya Garena guna 'nickname' atau 'nick_name'
+            name = data.get("nickname") or data.get("nick_name")
 
-            if nickname:
+            if name:
                 return jsonify({
                     "status": "Success",
                     "data": {
                         "uid": uid,
-                        "name": nickname,
+                        "name": name,
                         "level": data.get("level", "0"),
-                        "exp": data.get("exp", "0"),
                         "region": "Singapore"
                     }
                 })
             else:
-                return jsonify({
-                    "status": "Failed", 
-                    "msg": "No Blacklist Account", 
-                    "detail": "ID tidak dijumpai di Server SG"
-                }), 404
+                # Kalau status 200 tapi name kosong, mungkin UID tu salah/tak wujud
+                return jsonify({"status": "Failed", "msg": "Player tidak dijumpai"}), 404
         
-        elif res.status_code == 401:
-            return jsonify({
-                "status": "Error", 
-                "msg": "Token basi atau salah. Sila update token baru guna /update."
-            }), 401
-            
-        else:
-            return jsonify({
-                "status": "Error", 
-                "msg": f"Garena Error {res.status_code}",
-                "raw_response": res.text
-            }), res.status_code
+        return jsonify({
+            "status": "Error", 
+            "msg": f"Garena Error {res.status_code}",
+            "raw": res.text
+        }), res.status_code
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
-        return jsonify({"status": "Error", "msg": "Server Garena sibuk atau timeout"}), 500
+        return jsonify({"status": "Error", "msg": str(e)}), 500
 
 # --- SISTEM UPDATE TOKEN (UNTUK PEMALAS) ---
 # Guna link ni: https://apisearchui.onrender.com/update?t=TOKEN_BARU
