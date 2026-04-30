@@ -1,7 +1,6 @@
 from flask import Flask, jsonify, request
 import requests
 import re
-import struct
 
 app = Flask(__name__)
 
@@ -10,6 +9,7 @@ VERSION = "OB53"
 current_token = ""
 
 def encode_varint(n):
+    """Fungsi untuk tukar UID kepada format Protobuf Varint"""
     data = bytearray()
     while n >= 0x80:
         data.append((n & 0x7f) | 0x80)
@@ -17,15 +17,24 @@ def encode_varint(n):
     data.append(n & 0x7f)
     return data
 
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({
+        "status": "Online",
+        "service": "HafizX Search API",
+        "mode": "Protobuf Scraper"
+    })
+
 @app.route('/gen', methods=['GET'])
 def get_player():
     global current_token
+    # 1. Define UID dari parameter URL (?name=UID)
     uid = request.args.get('name')
     
     if not uid:
         return jsonify({"status": "Error", "msg": "Sila masukkan ?name=UID"}), 400
 
-    # HEADERS: Susunan sangat penting untuk Garena
+    # 2. Headers ikut sebiji data mitmweb kau
     headers = {
         "Host": "clientbp.ggpolarbear.com",
         "User-Agent": "UnityPlayer/2022.3.47f1 (UnityWebRequest/1.0, libcurl/8.5.0-DEV)",
@@ -33,7 +42,7 @@ def get_player():
         "Authorization": f"Bearer {current_token}",
         "X-GA": "v1 1",
         "ReleaseVersion": VERSION,
-        "Content-Type": "application/x-www-form-urlencoded", # Kadang-kadang dia nak ni tapi data binari
+        "Content-Type": "application/x-www-form-urlencoded",
         "X-Unity-Version": "2022.3.47f1",
         "Connection": "keep-alive"
     }
@@ -41,30 +50,39 @@ def get_player():
     try:
         url = "https://clientbp.ggpolarbear.com/GetAccountInfoByAccountID"
         
-        # Bina Protobuf Payload: Field 1 (account_id)
-        # Garena perlukan format binari yang tepat
+        # 3. Bina Binary Payload (Member 1: account_id)
+        # \x08 adalah Tag untuk Field 1 dalam Protobuf
         payload = b'\x08' + encode_varint(int(uid))
         
-        # Paksa hantar sebagai bytes mentah
-        res = requests.post(url, data=payload, headers=headers, timeout=10, verify=True)
+        # 4. Hantar Request ke Garena
+        res = requests.post(url, data=payload, headers=headers, timeout=10)
         
-        print(f"DEBUG: Status {res.status_code} | Raw: {res.content[:20]}")
+        # Log untuk debug kat Render
+        print(f"DEBUG: UID {uid} | Status {res.status_code}")
 
         if res.status_code == 200:
             raw_data = res.content
-            # Guna Regex untuk cari nama dalam jampi
-            match = re.search(rb'[A-Za-z0-9\s\u1D00-\u1D7F]{3,20}', raw_data)
+            
+            # 5. Cari Nickname (Member 3) guna Regex
+            # Kita cari pattern: Tag \x1a (Field 3) + Length + Nama
+            match = re.search(rb'\x1a.([A-Za-z0-9\s\u1D00-\u1D7F]{3,20})', raw_data)
             
             if match:
-                nickname = match.group().decode('utf-8', errors='ignore').strip()
+                nickname = match.group(1).decode('utf-8', errors='ignore').strip()
                 return jsonify({
                     "status": "Success",
-                    "data": {"uid": uid, "name": nickname}
+                    "data": {
+                        "uid": uid,
+                        "name": nickname
+                    }
                 })
             else:
-                return jsonify({"status": "Error", "msg": "Berhasil tembus tapi nama tak jumpa", "hex": raw_data.hex()[:50]})
+                return jsonify({
+                    "status": "Error", 
+                    "msg": "Nama tak jumpa dalam data binari",
+                    "debug": str(raw_data[:50])
+                }), 404
         
-        # Kalau masih 500, kita return raw data untuk Hafiz check
         return jsonify({
             "status": "Error", 
             "msg": f"Garena Error {res.status_code}",
@@ -81,7 +99,7 @@ def update():
     if t:
         current_token = t
         return "Token Updated!"
-    return "No Token"
+    return "Guna: /update?t=TOKEN"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
