@@ -3,73 +3,102 @@ import requests
 
 app = Flask(__name__)
 
-# --- KONFIGURASI ---
+# --- KONFIGURASI ASAS ---
 VERSION = "OB53"
-current_token = "Bearer eyJhbGciOiJIUzI1NiIsInN2ciI6IjEiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lkIjoxNTQyODE1NTE2Niwibmlja25hbWUiOiJmeXBUV2xzSld3SlVEbFZXIiwibm90aV9yZWdpb24iOiJTRyIsImxvY2tfcmVnaW9uIjoiU0ciLCJleHRlcm5hbF9pZCI6ImZiYjE4YTY2MTBjNDRlNjY0NWRkZWI0MDVlMTVlY2JjIiwiZXh0ZXJuYWxfdHlwZSI6NCwicGxhdF9pZCI6MSwiY2xpZW50X3ZlcnNpb24iOiIxLjEyMy4xMCIsImVtdWxhdG9yX3Njb3JlIjoxMDAsImlzX2VtdWxhdG9yIjp0cnVlLCJjb3VudHJ5X2NvZGUiOiJNWSIsImV4dGVybmFsX3VpZCI6NDcyNzEwMzM4OCwicmVnX2F2YXRhciI6MTAyMDAwMDA3LCJzb3VyY2UiOjQsImxvY2tfcmVnaW9uX3RpbWUiOjE3NzY0NDM3NzcsImNsaWVudF90eXBlIjoyLCJzaWduYXR1cmVfbWQ1IjoiMWFjNGI4MGVjZjA0NzhhNDQyMDNiZjhmYWM2MTIwZjUiLCJ1c2luZ192ZXJzaW9uIjoxLCJyZWxlYXNlX2NoYW5uZWwiOiIzcmRfcGFydHkiLCJyZWxlYXNlX3ZlcnNpb24iOiJPQjUzIiwiZXhwIjoxNzc3NTQ1Njc4fQ.gixuhEwe_TfsENv4tQrHNlSQdDAa_UiDAXSFvMdFAWU"
+# Token ini akan disimpan dalam memori server Render. 
+# Hafiz kena update guna link /update lepas push ke Render.
+current_token = ""
 
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({
         "status": "Online",
         "region": "Singapore",
-        "service": "Player ID Search"
+        "service": "HafizX Player Search API",
+        "version": VERSION
     })
 
-# --- ENDPOINT CARI PLAYER (SG ONLY) ---
+# --- ENDPOINT UTAMA: CARI PLAYER ID ---
 @app.route('/gen', methods=['GET'])
 def get_player():
     global current_token
     uid = request.args.get('name')
     
+    # Check kalau Hafiz lupa letak ?name=UID
     if not uid:
         return jsonify({"status": "Error", "msg": "Sila masukkan ?name=UID"}), 400
 
+    # Header yang diperlukan oleh server Garena
     headers = {
         "Authorization": f"Bearer {current_token}",
         "ReleaseVersion": VERSION,
         "X-GA": "v1 1",
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 12; MSI Build/SKR1.210119.001)"
     }
 
     try:
-        # Request ke Garena Singapore
         url = "https://clientbp.ggpolarbear.com/GetPlayerBriefInfo"
-        res = requests.post(url, data=f"account_id={uid}", headers=headers, timeout=10)
         
+        # Payload dalam format form-urlencoded (Kunci kepada Error 500 tadi)
+        payload = {'account_id': str(uid)} 
+        
+        # Hantar request ke Garena
+        res = requests.post(url, data=payload, headers=headers, timeout=10)
+        
+        # Log untuk Hafiz check kat Dashboard Render kalau ada error
+        print(f"DEBUG: UID {uid} | Status {res.status_code} | Response: {res.text}")
+
         if res.status_code == 200:
             data = res.json()
-            name = data.get("nickname")
+            nickname = data.get("nickname")
 
-            if name:
+            if nickname:
                 return jsonify({
                     "status": "Success",
                     "data": {
                         "uid": uid,
-                        "name": name,
+                        "name": nickname,
                         "level": data.get("level", "0"),
+                        "exp": data.get("exp", "0"),
                         "region": "Singapore"
                     }
                 })
             else:
-                return jsonify({"status": "Failed", "msg": "ID tidak dijumpai di Server SG"}), 404
+                return jsonify({
+                    "status": "Failed", 
+                    "msg": "No Blacklist Account", 
+                    "detail": "ID tidak dijumpai di Server SG"
+                }), 404
         
         elif res.status_code == 401:
-            return jsonify({"status": "Error", "msg": "Token sudah basi. Sila update token baru."}), 401
+            return jsonify({
+                "status": "Error", 
+                "msg": "Token basi atau salah. Sila update token baru guna /update."
+            }), 401
+            
         else:
-            return jsonify({"status": "Error", "msg": f"Garena Error {res.status_code}"}), res.status_code
+            return jsonify({
+                "status": "Error", 
+                "msg": f"Garena Error {res.status_code}",
+                "raw_response": res.text
+            }), res.status_code
 
     except Exception as e:
-        return jsonify({"status": "Error", "msg": "Connection timeout"}), 500
+        print(f"CRITICAL ERROR: {e}")
+        return jsonify({"status": "Error", "msg": "Server Garena sibuk atau timeout"}), 500
 
-# --- PINTU RAHSIA UPDATE TOKEN ---
+# --- SISTEM UPDATE TOKEN (UNTUK PEMALAS) ---
+# Guna link ni: https://apisearchui.onrender.com/update?t=TOKEN_BARU
 @app.route('/update', methods=['GET'])
 def update():
     global current_token
     new_t = request.args.get('t')
     if new_t:
         current_token = new_t
-        return "Token Updated, Hafiz! Dah boleh test cari ID balik."
-    return "Masukkan token kat ?t="
+        return "<h3>Token SG Berjaya Diupdate!</h3><p>Hafiz dah boleh sambung check ID sekarang.</p>"
+    return "Hafiz, kau lupa masukkan token kat hujung link tu (?t=TOKEN)"
 
 if __name__ == '__main__':
+    # Set host ke 0.0.0.0 supaya Render boleh akses
     app.run(host='0.0.0.0', port=5000)
