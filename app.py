@@ -3,80 +3,73 @@ import requests
 
 app = Flask(__name__)
 
-# --- AUTH CONFIGURATION ---
-ANDROID_ID = "96a2a6c1a6c9dce6"
+# --- KONFIGURASI ---
 VERSION = "OB53"
-cached_token = None
+current_token = "Bearer eyJhbGciOiJIUzI1NiIsInN2ciI6IjEiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lkIjoxNTQyODE1NTE2Niwibmlja25hbWUiOiJmeXBUV2xzSld3SlVEbFZXIiwibm90aV9yZWdpb24iOiJTRyIsImxvY2tfcmVnaW9uIjoiU0ciLCJleHRlcm5hbF9pZCI6ImZiYjE4YTY2MTBjNDRlNjY0NWRkZWI0MDVlMTVlY2JjIiwiZXh0ZXJuYWxfdHlwZSI6NCwicGxhdF9pZCI6MSwiY2xpZW50X3ZlcnNpb24iOiIxLjEyMy4xMCIsImVtdWxhdG9yX3Njb3JlIjoxMDAsImlzX2VtdWxhdG9yIjp0cnVlLCJjb3VudHJ5X2NvZGUiOiJNWSIsImV4dGVybmFsX3VpZCI6NDcyNzEwMzM4OCwicmVnX2F2YXRhciI6MTAyMDAwMDA3LCJzb3VyY2UiOjQsImxvY2tfcmVnaW9uX3RpbWUiOjE3NzY0NDM3NzcsImNsaWVudF90eXBlIjoyLCJzaWduYXR1cmVfbWQ1IjoiMWFjNGI4MGVjZjA0NzhhNDQyMDNiZjhmYWM2MTIwZjUiLCJ1c2luZ192ZXJzaW9uIjoxLCJyZWxlYXNlX2NoYW5uZWwiOiIzcmRfcGFydHkiLCJyZWxlYXNlX3ZlcnNpb24iOiJPQjUzIiwiZXhwIjoxNzc3NTQ1Njc4fQ.gixuhEwe_TfsENv4tQrHNlSQdDAa_UiDAXSFvMdFAWU"
 
-def get_session():
-    global cached_token
-    if cached_token:
-        return cached_token
-    
-    # Auto-login engine
-    url = "https://loginbp.ggpolarbear.com/MajorLogin"
-    payload = {
-        "device_id": ANDROID_ID,
-        "android_id": ANDROID_ID,
-        "release_version": VERSION,
-        "client_version": "1.123.10"
-    }
-    try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code == 200:
-            cached_token = res.json().get("token") or res.json().get("access_token")
-            return cached_token
-    except:
-        return None
-
-# --- HOME INTERFACE (FOLLOWING YOUR SCREENSHOT FORMAT) ---
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({
-        "available_regions": ["SG"],
-        "endpoint": "/gen?name=UID",
-        "message": "HafizX Player Search API",
-        "note": "Enter UID to fetch player nickname and basic info."
+        "status": "Online",
+        "region": "Singapore",
+        "service": "Player ID Search"
     })
 
-# --- CORE SEARCH ENGINE ---
+# --- ENDPOINT CARI PLAYER (SG ONLY) ---
 @app.route('/gen', methods=['GET'])
-def search_id():
+def get_player():
+    global current_token
     uid = request.args.get('name')
     
     if not uid:
-        return jsonify({"status": "Error", "msg": "Please provide a UID"}), 400
+        return jsonify({"status": "Error", "msg": "Sila masukkan ?name=UID"}), 400
 
-    token = get_session()
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {current_token}",
         "ReleaseVersion": VERSION,
-        "X-GA": "v1 1"
+        "X-GA": "v1 1",
+        "Content-Type": "application/x-www-form-urlencoded"
     }
-    
+
     try:
-        # Target: Fetching nickname and basic data
-        api_url = "https://clientbp.ggpolarbear.com/GetPlayerBriefInfo"
-        response = requests.post(api_url, data={"account_id": uid}, headers=headers, timeout=5)
+        # Request ke Garena Singapore
+        url = "https://clientbp.ggpolarbear.com/GetPlayerBriefInfo"
+        res = requests.post(url, data=f"account_id={uid}", headers=headers, timeout=10)
         
-        if response.status_code == 200:
-            p = response.json()
-            return jsonify({
-                "status": "Success",
-                "data": {
-                    "uid": uid,
-                    "nickname": p.get("nickname", "Not Found"),
-                    "level": p.get("level", "0"),
-                    "region": "Singapore"
-                }
-            })
+        if res.status_code == 200:
+            data = res.json()
+            name = data.get("nickname")
+
+            if name:
+                return jsonify({
+                    "status": "Success",
+                    "data": {
+                        "uid": uid,
+                        "name": name,
+                        "level": data.get("level", "0"),
+                        "region": "Singapore"
+                    }
+                })
+            else:
+                return jsonify({"status": "Failed", "msg": "ID tidak dijumpai di Server SG"}), 404
+        
+        elif res.status_code == 401:
+            return jsonify({"status": "Error", "msg": "Token sudah basi. Sila update token baru."}), 401
         else:
-            return jsonify({"status": "Failed", "msg": "Connection error"}), response.status_code
+            return jsonify({"status": "Error", "msg": f"Garena Error {res.status_code}"}), res.status_code
 
     except Exception as e:
-        return jsonify({"status": "Error", "msg": str(e)}), 500
+        return jsonify({"status": "Error", "msg": "Connection timeout"}), 500
+
+# --- PINTU RAHSIA UPDATE TOKEN ---
+@app.route('/update', methods=['GET'])
+def update():
+    global current_token
+    new_t = request.args.get('t')
+    if new_t:
+        current_token = new_t
+        return "Token Updated, Hafiz! Dah boleh test cari ID balik."
+    return "Masukkan token kat ?t="
 
 if __name__ == '__main__':
-    app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
-    app.config['JSON_SORT_KEYS'] = False
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
