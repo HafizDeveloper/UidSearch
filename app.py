@@ -27,26 +27,33 @@ def get_player():
     if not uid:
         return jsonify({"status": "Error", "msg": "Sila masukkan ?name=UID"}), 400
 
+    # HEADERS: Copy sebiji macam raw data yang kau bagi
     headers = {
+        "Host": "clientbp.ggpolarbear.com",
+        "User-Agent": "UnityPlayer/2022.3.47f1 (UnityWebRequest/1.0, libcurl/8.5.0-DEV)",
+        "Accept": "*/*",
         "Authorization": f"Bearer {current_token}",
-        "ReleaseVersion": VERSION,
         "X-GA": "v1 1",
+        "ReleaseVersion": VERSION,
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "okhttp/3.12.1"
+        "X-Unity-Version": "2022.3.47f1",
+        "Connection": "keep-alive"
     }
 
     try:
-        # Ganti dengan endpoint yang Hafiz jumpa tadi
         url = "https://clientbp.ggpolarbear.com/GetAccountInfoByAccountID"
         
-        # Cuba hantar payload macam ni (ikut kesesuaian mitmweb)
+        # Payload format: account_id=UID
         payload = f"account_id={uid}"
         
         res = requests.post(url, data=payload, headers=headers, timeout=10)
         
+        # Log untuk check kat Render
+        print(f"DEBUG: UID {uid} | Status {res.status_code} | Res: {res.text}")
+
         if res.status_code == 200:
             data = res.json()
-            # Biasanya Garena guna 'nickname' atau 'nick_name'
+            # Garena bagi data dalam json, kita tarik nickname
             name = data.get("nickname") or data.get("nick_name")
 
             if name:
@@ -60,8 +67,7 @@ def get_player():
                     }
                 })
             else:
-                # Kalau status 200 tapi name kosong, mungkin UID tu salah/tak wujud
-                return jsonify({"status": "Failed", "msg": "Player tidak dijumpai"}), 404
+                return jsonify({"status": "Failed", "msg": "ID Tak Jumpa"}), 404
         
         return jsonify({
             "status": "Error", 
@@ -72,17 +78,15 @@ def get_player():
     except Exception as e:
         return jsonify({"status": "Error", "msg": str(e)}), 500
 
-# --- SISTEM UPDATE TOKEN (UNTUK PEMALAS) ---
-# Guna link ni: https://apisearchui.onrender.com/update?t=TOKEN_BARU
+# Update token guna link: /update?t=TOKEN
 @app.route('/update', methods=['GET'])
 def update():
     global current_token
-    new_t = request.args.get('t')
-    if new_t:
-        current_token = new_t
-        return "<h3>Token SG Berjaya Diupdate!</h3><p>Hafiz dah boleh sambung check ID sekarang.</p>"
-    return "Hafiz, kau lupa masukkan token kat hujung link tu (?t=TOKEN)"
+    t = request.args.get('t')
+    if t:
+        current_token = t
+        return "Token Updated!"
+    return "No Token"
 
 if __name__ == '__main__':
-    # Set host ke 0.0.0.0 supaya Render boleh akses
     app.run(host='0.0.0.0', port=5000)
