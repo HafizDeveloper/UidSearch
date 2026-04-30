@@ -24,62 +24,55 @@ def get_player():
     if not uid:
         return jsonify({"status": "Error", "msg": "Sila masukkan ?name=UID"}), 400
 
-    # Headers yang diikut sebiji dari raw data mitmweb kau
     headers = {
         "Host": "clientbp.ggpolarbear.com",
         "User-Agent": "UnityPlayer/2022.3.47f1 (UnityWebRequest/1.0, libcurl/8.5.0-DEV)",
         "Accept": "*/*",
         "Authorization": f"Bearer {current_token}",
         "X-GA": "v1 1",
-        "ReleaseVersion": VERSION,
-        "Content-Type": "application/x-www-form-urlencoded",
+        "ReleaseVersion": "OB53",
+        "Content-Type": "application/x-protobuf", # Tukar ke protobuf
         "X-Unity-Version": "2022.3.47f1",
         "Connection": "keep-alive"
     }
 
     try:
         url = "https://clientbp.ggpolarbear.com/GetAccountInfoByAccountID"
-        payload = f"account_id={uid}"
         
-        # Hantar request
+        # Susunan Protobuf Manual: 
+        # \x08 (Field 1, Varint) + Hex UID
+        # Ini cara paling dekat nak tiru 'Content-Length: 16' kau
+        import struct
+        
+        def encode_varint(n):
+            data = bytearray()
+            while n >= 0x80:
+                data.append((n & 0x7f) | 0x80)
+                n >>= 7
+            data.append(n & 0x7f)
+            return data
+
+        # Bina payload: Field Number 1 (account_id)
+        # Format Protobuf: (field_number << 3) | wire_type
+        payload = b'\x08' + encode_varint(int(uid))
+        
+        # Hantar sebagai data binari mentah
         res = requests.post(url, data=payload, headers=headers, timeout=10)
         
-        # Log status untuk debug di Render
-        print(f"DEBUG: UID {uid} | Status {res.status_code}")
-
         if res.status_code == 200:
-            # Guna .content untuk data binari (Protobuf)
-            raw_data = res.content 
-            
-            # Teknik "Regex Scraper" untuk cari nickname dalam data jampi
-            # Kita cari string yang ada huruf/nombor dan simbol khas nama (3-20 char)
-            # Pattern ini akan cuba cari nama seperti 'MᴜᴍᴍʏEᴠᴀTᴇᴀᴍ'
-            match = re.search(rb'[A-Za-z0-9\s\u1D00-\u1D7F]{3,20}', raw_data)
+            raw = res.content
+            # Guna Regex macam tadi untuk tarik nama dari hasil Protobuf
+            import re
+            match = re.search(rb'[A-Za-z0-9\s\u1D00-\u1D7F]{3,20}', raw)
             
             if match:
-                # Decode data yang dijumpai ke bentuk teks biasa
                 nickname = match.group().decode('utf-8', errors='ignore').strip()
-                
                 return jsonify({
                     "status": "Success",
-                    "data": {
-                        "uid": uid,
-                        "name": nickname,
-                        "method": "Binary Extraction"
-                    }
+                    "data": {"uid": uid, "name": nickname}
                 })
-            else:
-                return jsonify({
-                    "status": "Failed", 
-                    "msg": "Nickname tidak dapat dikesan dalam data binari",
-                    "debug_raw": str(raw_data[:50]) # Tunjuk 50 huruf pertama untuk check
-                }), 404
         
-        return jsonify({
-            "status": "Error", 
-            "msg": f"Garena Error {res.status_code}",
-            "raw_hex": res.content.hex()[:100]
-        }), res.status_code
+        return jsonify({"status": "Error", "code": res.status_code, "raw": res.text}), res.status_code
 
     except Exception as e:
         return jsonify({"status": "Error", "msg": str(e)}), 500
